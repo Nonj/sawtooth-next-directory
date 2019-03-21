@@ -15,5 +15,4 @@
 
 # Copied from https://github.com/hyperledger/sawtooth-core/tree/master/protos
 # for documentation purposes.
-#
-# import from sawtooth_sdk.protobuf
+

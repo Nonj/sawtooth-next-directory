@@ -25,13 +25,11 @@ from rbac.ledger_sync.deltas.decoding import TABLE_NAMES
 
 LOGGER = get_default_logger(__name__)
 
-
 def get_delta_handler(database):
     """Returns a delta handler with a reference to a specific Database object.
     The handler takes delta event and updates the Database appropriately.
     """
     return lambda state_change: _handle_state_changes(database, state_change)
-
 
 def update_database(database, state_change):
     """Takes in a delta and database object,

@@ -19,12 +19,7 @@ from uuid import uuid4
 from sanic import Blueprint
 from sanic.response import json
 
-from rbac.common.role import Role
 from rbac.server.api.auth import authorized
-from rbac.server.api import utils
-from rbac.server.db import roles_query
-from rbac.server.db import db_utils
-
 ROLES_BP = Blueprint("roles")
 
 
