@@ -19,6 +19,7 @@ RUN apt-get update -y && \
         apt-file update && \
         apt-get install -y gcc
 RUN pip install \
+        bcrypt==3.1.7 \
         grpcio-tools==1.16.1 \
         itsdangerous==1.1.0 \
         rethinkdb==2.3.0.post6 \
@@ -30,7 +31,8 @@ RUN pip install \
         cryptography==2.4.2 \
         aiohttp==3.5.4 \
         ldap3==2.5.2 \
-        environs==4.1.0
+        environs==4.1.0 \
+        sanic-openapi==0.5.3
 EXPOSE 8000/tcp
 WORKDIR /project/hyperledger-rbac
 CMD ["./bin/rbac-server"]

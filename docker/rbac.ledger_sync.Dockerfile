@@ -30,6 +30,8 @@ RUN pip install \
         apscheduler==3.5.3 \
         sawtooth-sdk==1.0.1 \
         ldap3==2.5.2 \
-        environs==4.1.0
+        environs==4.1.0 \
+        sanic-openapi==0.5.3 \
+        aiohttp==3.5.4
 WORKDIR /project/hyperledger-rbac
 CMD ["./bin/rbac-ledger-sync"]

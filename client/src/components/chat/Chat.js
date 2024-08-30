@@ -25,6 +25,7 @@ import RequesterChat from './RequesterChat';
 import PeopleChat from './PeopleChat';
 
 
+import * as storage from 'services/Storage';
 import * as sound from 'services/Sound';
 
 
@@ -84,6 +85,7 @@ class Chat extends Component {
     const payload = {
       text: message,
       next_id: id,
+      token: storage.getToken(),
       resource_id: (activeRole && activeRole.id) ||
         (activePack && activePack.id),
     };
@@ -146,12 +148,10 @@ class Chat extends Component {
    */
   render () {
     const {
-      activeRole,
       disabled,
       hideButtons,
       hideForm,
       type } = this.props;
-    const noMembers = activeRole && activeRole.owners.length === 0;
 
     return (
       <div id='next-chat-container'>
@@ -169,7 +169,6 @@ class Chat extends Component {
             <ChatForm
               {...this.props}
               disabled={disabled}
-              formDisabled={noMembers}
               hideButtons={hideButtons}
               hideForm={hideForm}
               approve={this.manualApprove}

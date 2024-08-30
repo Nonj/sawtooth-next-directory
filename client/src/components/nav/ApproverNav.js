@@ -84,12 +84,6 @@ class ApproverNav extends Component {
             { name: 'About to Expire', slug: 'about-to-expire' },
           ]}
           route='/approval/pending'/>
-        <h4 className={`hover ${this.isItemActive('delegated') ?
-          'active' : ''}`}>
-          <Link to='/approval/delegated'>
-            Delegated
-          </Link>
-        </h4>
         <h4 className={`hover ${this.isItemActive('approved') ?
           'active' : ''}`}>
           <Link to='/approval/approved'>
@@ -102,26 +96,32 @@ class ApproverNav extends Component {
             Rejected
           </Link>
         </h4>
-        <h4 className={`hover ${this.isItemActive('expired') ?
-          'active' : ''}`}>
+        <h4 className='approver-nav-item-disable'>
+          <Link to='/approval/delegated'>
+            Delegated
+          </Link>
+        </h4>
+        <h4 className='approver-nav-item-disable'>
           <Link to='/approval/expired'>
             Expired
           </Link>
         </h4>
-        <h4 className={`hover ${this.isItemActive('people') ?
-          'active' : ''}`}>
-          <NavList
-            titleIsLink
-            listTitle='People'
-            // list={bar}
-            route='/approval/people'/>
-        </h4>
-        <h4 className={`hover ${this.isItemActive('manage') ?
-          'active' : ''}`}>
-          <Link to='/approval/manage'>
-            Manage
-          </Link>
-        </h4>
+        <div>
+          <h4 className={`hover ${this.isItemActive('people') ?
+            'active' : ''}`}>
+            <NavList
+              titleIsLink
+              listTitle='People'
+              // list={bar}
+              route='/approval/people'/>
+          </h4>
+          <h4 className={`hover ${this.isItemActive('manage') ?
+            'active' : ''}`}>
+            <Link to='/approval/manage'>
+              Manage
+            </Link>
+          </h4>
+        </div>
       </div>
     );
   }
@@ -134,21 +134,21 @@ class ApproverNav extends Component {
   render () {
     return (
       <Container>
+        <Search
+          input={() => <Input
+            icon='search'
+            placeholder='Search roles and packs...'/>}
+          className='next-approver-nav-search'
+          category
+          loading={false}/>
         <Link to='/snapshot' id='next-approver-nav-snapshot'>
-          <Button animated primary fluid>
+          <Button primary fluid>
             <Button.Content visible>
               SNAPSHOT
-            </Button.Content>
-            <Button.Content hidden>
               <Icon name='arrow right'/>
             </Button.Content>
           </Button>
         </Link>
-        <Search
-          input={() => <Input icon='search' placeholder='Search...'/>}
-          className='next-approver-nav-search'
-          category
-          loading={false}/>
         { this.renderLists() }
       </Container>
     );

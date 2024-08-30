@@ -13,20 +13,27 @@
 # limitations under the License.
 # ------------------------------------------------------------------------------
 """API to authenticate and login to the NEXT platform."""
+
+import json
 from functools import wraps
 import hashlib
 import re
+from hmac import compare_digest as compare_hash
+import aiohttp
 
-from itsdangerous import BadSignature
 from environs import Env
+from itsdangerous import BadSignature
 from ldap3 import Server, Connection
 from sanic import Blueprint
+from sanic.response import json as sanic_json
+from sanic_openapi import doc
 
-from rbac.common.crypto.secrets import generate_api_key
-from rbac.common.crypto.secrets import deserialize_api_key
+from rbac.app.config import ADAPI_REST_ENDPOINT
+from rbac.common.crypto.secrets import deserialize_api_key, generate_api_key
 from rbac.common.logs import get_default_logger
 from rbac.server.api import utils
 from rbac.server.api.errors import ApiNotFound, ApiUnauthorized, ApiBadRequest
+from rbac.server.api.utils import log_request
 from rbac.server.db.auth_query import (
     create_auth_entry,
     get_auth_by_next_id,
@@ -60,7 +67,6 @@ def authorized():
                     request.app.config.SECRET_KEY, utils.extract_request_token(request)
                 )
                 await get_auth_by_next_id(id_dict.get("id"))
-
             except (ApiNotFound, BadSignature):
                 raise ApiUnauthorized("Unauthorized: Invalid bearer token")
             response = await func(request, *args, **kwargs)
@@ -71,11 +77,91 @@ def authorized():
     return decorator
 
 
+@AUTH_BP.post("api/corpuser")
+@doc.summary("Create a new CORP user.")
+@doc.description("Create a CORP account using provided GSM1900 ID and password.")
+@doc.consumes(
+    doc.JsonBody(
+        {"id": str, "password": str}, description="Username and password of CORP user"
+    ),
+    content_type="application/json",
+    location="body",
+    required=True,
+)
+@doc.produces(
+    {"data": {"message": str}}, description="CORP account request successful."
+)
+@doc.response(
+    400,
+    {"code": int, "message": str},
+    description="Bad Request: CORP account request unsuccessful.",
+)
+async def create_corpuser(request):
+    """Create a new CORP user."""
+    required_fields = ["id", "password"]
+    utils.validate_fields(required_fields, request.json)
+    log_request(request, True)
+
+    env = Env()
+    username = env("ADAPI_USERNAME")
+    password = env("ADAPI_PASSWORD")
+
+    auth = aiohttp.BasicAuth(login=username, password=password)
+    url = ADAPI_REST_ENDPOINT + "?command=new-corpuser"
+    data = {
+        "ntid": request.json.get("id"),
+        "userName": request.json.get("id"),
+        "password": request.json.get("password"),
+    }
+    conn = aiohttp.TCPConnector(
+        limit=request.app.config.AIOHTTP_CONN_LIMIT,
+        ttl_dns_cache=request.app.config.AIOHTTP_DNS_TTL,
+        verify_ssl=False,
+    )
+    async with aiohttp.ClientSession(connector=conn, auth=auth) as session:
+        async with session.post(url=url, json=data) as response:
+            data = await response.read()
+            res = json.loads(data.decode("utf-8"))
+            if res.get("success") == "false":
+                raise ApiBadRequest("Invalid CORP account request.")
+            return sanic_json({"data": {"message": "CORP account request successful."}})
+
+
 @AUTH_BP.post("api/authorization")
+@doc.summary("API Endpoint to authenticate and login to the NEXT platform.")
+@doc.description("API Endpoint to authenticate and login to the NEXT platform.")
+@doc.consumes(
+    doc.JsonBody(
+        {"id": str, "password": str}, description="Username and password of user"
+    ),
+    content_type="application/json",
+    location="body",
+    required=True,
+)
+@doc.produces(
+    {"data": {"message": str, "next_id": str}, "token": str},
+    description="When user successfully authenticates into NEXT",
+)
+@doc.response(
+    400,
+    {"code": int, "message": str},
+    description="Bad Request: When user unsuccessfully authenticates into NEXT",
+)
+@doc.response(
+    401,
+    {"code": int, "message": str},
+    description="Forbidden: When user unsuccessfully authenticates into NEXT",
+)
+@doc.response(
+    404,
+    {"code": int, "message": str},
+    description="Not found: When user attempts to login with invalid auth source",
+)
 async def authorize(request):
     """ API Endpoint to authenticate and login to the NEXT platform. """
     required_fields = ["id", "password"]
     utils.validate_fields(required_fields, request.json)
+    log_request(request, True)
     username = request.json.get("id")
     password = request.json.get("password")
     env = Env()
@@ -97,7 +183,7 @@ async def authorize(request):
             "ENABLE_AZURE_SYNC"
         ):
             auth_via_azure(user_map)
-        elif not user_map["provider_id"]:
+        elif user_map["provider_id"] == "NEXT-created":
             next_auth = user_map
         if result:
             auth_entry = {
@@ -157,12 +243,23 @@ def auth_via_azure(user_map):
 
 async def auth_via_next(user, password, env):
     """Authorization via NEXT stored credentials to access NEXT"""
-    hashed_pwd = hashlib.sha256(password.encode("utf-8")).hexdigest()
     auth_info = await get_auth_by_next_id(user["next_id"])
+
+    # check if a password is set on the account.
     if auth_info["hashed_password"] is None:
         raise ApiUnauthorized("No password is set on this account.")
-    if auth_info["hashed_password"] != hashed_pwd:
-        raise ApiUnauthorized("The password you entered is incorrect.")
+
+    salt = auth_info.get("salt")
+    hashed_password = auth_info.get("hashed_password")
+
+    # compare the hashes.
+    check_password = compare_hash(
+        hashed_password,
+        hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100000).hex(),
+    )
+
+    if not check_password:
+        raise ApiUnauthorized("Incorrect username or password.")
 
     token = generate_api_key(env("SECRET_KEY"), user["next_id"])
     return utils.create_authorization_response(

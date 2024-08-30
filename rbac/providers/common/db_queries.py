@@ -49,7 +49,7 @@ def get_last_sync(source, sync_type):
         raise err
 
 
-def save_sync_time(provider_id, sync_source, sync_type, timestamp=None):
+def save_sync_time(provider_id, sync_source, sync_type, conn, timestamp=None):
     """Saves sync time for the current data type into the RethinkDB table 'sync_tracker'."""
     if timestamp:
         last_sync_time = timestamp
@@ -61,9 +61,7 @@ def save_sync_time(provider_id, sync_source, sync_type, timestamp=None):
         "source": sync_source,
         "sync_type": sync_type,
     }
-    conn = connect_to_db()
     r.table("sync_tracker").insert(sync_entry).run(conn)
-    conn.close()
 
 
 def peek_at_queue(table_name, provider_id=None):
@@ -74,7 +72,7 @@ def peek_at_queue(table_name, provider_id=None):
         if provider_id:
             queue_entry = (
                 r.table(table_name)
-                .filter({"provider_id": provider_id})
+                .filter({"provider_id": provider_id, "status": "UNCONFIRMED"})
                 .min("timestamp")
                 .coerce_to("object")
                 .run(conn)
@@ -108,3 +106,14 @@ def delete_entry_queue(object_id, table_name):
     result = r.table(table_name).get(object_id).delete(return_changes=True).run(conn)
     conn.close()
     LOGGER.debug(result)
+
+
+def update_outbound_entry_status(entry_id):
+    """ Change outbound_queue entry's status from UNCONFIRMED to CONFIRMED
+
+    Args:
+        entry_id: (str) Id field of outbound_queue entry
+    """
+    conn = connect_to_db()
+    r.table("outbound_queue").get(entry_id).update({"status": "CONFIRMED"}).run(conn)
+    conn.close()

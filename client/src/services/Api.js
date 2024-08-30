@@ -53,11 +53,15 @@ const create = (baseURL =
   // Configuration
   const api = apisauce.create({
     baseURL,
-    withCredentials: true,
   });
 
 
   // Transforms
+  api.addRequestTransform(req => {
+    req.headers.Authorization = `Bearer ${storage.getToken()}`;
+  });
+
+
   api.addResponseTransform(res => {
     switch (res.problem) {
       case 'TIMEOUT_ERROR':
@@ -81,6 +85,8 @@ const create = (baseURL =
     switch (res.status) {
       case 200:
         break;
+      case 400:
+        break;
       case 401:
         if (!res.config.url.includes('authorization')) {
           toast.warn('For security reasons, your session has expired.', {
@@ -90,6 +96,12 @@ const create = (baseURL =
         }
         break;
       case 404:
+        break;
+      case 503:
+        if (res.data && res.data.message < 0)
+          res.data.message = 'Whoa! The server is unavailable.';
+        else
+          toast(res.data.message);
         break;
       default:
         toast(res.data.message);
@@ -101,6 +113,8 @@ const create = (baseURL =
   // Definitions
   const createPack = (payload) => api.post('packs', payload);
   const createRole = (payload) => api.post('roles', payload);
+  const deletePack = (id) => api.delete(`packs/${id}`);
+  const editUser = (payload) => api.put('users/update', payload);
   const login = (creds) => api.post('authorization', creds);
   const me = () => api.get(`users/${storage.get('next_id')}`);
   const getProposal = (id) => api.get(`proposals/${id}`);
@@ -114,13 +128,13 @@ const create = (baseURL =
   const getUsers = (start, limit) => api.get('users', { start, limit });
   const getUserSummary = (id) => api.get(`user/${id}/summary`);
   const packExists = (name) => api.get('packs/check', { name });
-  const userExists = (name) => api.get('users/check', { name });
+  const userExists = (username) => api.get('users/check', { username });
   const requestPackAccess = (id, body) => api.post(`packs/${id}/members`, body);
   const requestRoleAccess = (id, body) => api.post(`roles/${id}/members`, body);
   const roleExists = (name) => api.get('roles/check', { name });
   const updateProposals = (payload) => api.patch('proposals', payload);
   const search = (query) => api.post('search', query);
-  const signup = (creds) => api.post('users', creds);
+  const signup = (creds) => api.post('corpuser', creds);
 
 
   const getConfirmedProposals = (id = storage.get('next_id')) =>
@@ -138,6 +152,8 @@ const create = (baseURL =
   return {
     createPack,
     createRole,
+    deletePack,
+    editUser,
     expire,
     login,
     getConfirmedProposals,

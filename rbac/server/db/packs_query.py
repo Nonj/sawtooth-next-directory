@@ -18,6 +18,7 @@ import rethinkdb as r
 
 from rbac.common.logs import get_default_logger
 from rbac.server.api.errors import ApiNotFound
+from rbac.server.db.db_utils import sanitize_query
 
 from rbac.server.db.relationships_query import (
     fetch_relationships_by_id,
@@ -141,9 +142,10 @@ async def search_packs_count(conn, search_query):
 
 def packs_search_name(search_query):
     """Search for packs based a string in the name field."""
+    query = sanitize_query(search_query["search_input"])
     resource = (
         r.table("packs")
-        .filter(lambda doc: (doc["name"].match("(?i)" + search_query["search_input"])))
+        .filter(lambda doc: (doc["name"].match("(?i)" + query)))
         .order_by("name")
         .coerce_to("array")
     )
@@ -153,13 +155,10 @@ def packs_search_name(search_query):
 
 def packs_search_description(search_query):
     """Search for packs based a string in the description field."""
+    query = sanitize_query(search_query["search_input"])
     resource = (
         r.table("packs")
-        .filter(
-            lambda doc: (
-                doc["description"].match("(?i)" + search_query["search_input"])
-            )
-        )
+        .filter(lambda doc: (doc["description"].match("(?i)" + query)))
         .order_by("name")
         .coerce_to("array")
     )
@@ -169,9 +168,10 @@ def packs_search_description(search_query):
 
 async def packs_search_duplicate(conn, name):
     """Search for packs based a string in the name field."""
+    query = sanitize_query(name)
     resource = (
         await r.table("packs")
-        .filter(lambda doc: (doc["name"].match("(?i)^" + name + "$")))
+        .filter(lambda doc: (doc["name"].match("(?i)^" + query + "$")))
         .order_by("name")
         .coerce_to("array")
         .run(conn)
@@ -209,8 +209,8 @@ async def delete_pack_by_id(conn, pack_id):
     return resource
 
 
-async def check_pack_by_pack_id(conn, pack_id):
-    """Queries for a pack by its id to see if it exists or not
+async def get_pack_by_pack_id(conn, pack_id):
+    """Queries for a pack by its id.
     Args:
         conn:
             object: Connection to rethinkDB
@@ -236,9 +236,10 @@ async def get_pack_owners_by_id(conn, pack_id):
     """
     owner = (
         await r.table("pack_owners")
-        .filter({"pack_id": pack_id})
+        .get_all(pack_id, index="pack_id")
         .get_field("identifiers")
         .coerce_to("array")
+        .concat_map(lambda identifiers: identifiers)
         .run(conn)
     )
     return owner

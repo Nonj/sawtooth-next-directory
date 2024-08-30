@@ -15,12 +15,14 @@
 """Queries for getting user data."""
 
 import rethinkdb as r
+
+from rbac.common.logs import get_default_logger
 from rbac.server.api.errors import ApiNotFound
-
-
 from rbac.server.db.proposals_query import fetch_proposal_ids_by_opener
 from rbac.server.db.relationships_query import fetch_relationships_by_id
 from rbac.server.db.roles_query import fetch_expired_roles
+
+LOGGER = get_default_logger(__name__)
 
 
 async def fetch_user_resource(conn, next_id):
@@ -353,10 +355,10 @@ def users_search_email(search_query):
     return resource
 
 
-def fetch_username_match_count(conn, username):
+async def fetch_username_match_count(conn, username):
     """Database query to fetch the count of usernames that match the given username."""
     resource = (
-        r.table("users")
+        await r.table("users")
         .filter(lambda doc: (doc["username"].match("(?i)^" + username + "$")))
         .count()
         .run(conn)
@@ -376,7 +378,7 @@ async def users_search_duplicate(conn, username):
     return resource
 
 
-async def update_user_password(conn, next_id, password):
+async def update_user_password(conn, next_id, hashed_password, salt):
     """Update a user's password by next_id
     Args:
         conn:
@@ -389,8 +391,34 @@ async def update_user_password(conn, next_id, password):
     resource = (
         await r.table("auth")
         .filter({"next_id": next_id})
-        .update({"hashed_password": password})
+        .update({"hashed_password": hashed_password, "salt": salt})
         .coerce_to("array")
         .run(conn)
     )
     return resource
+
+
+async def get_next_admins(conn):
+    """ Gets a list of all NextAdmins members.
+
+    Args:
+        conn: (RethinkDB connection object) Used to make queries
+            in RethinkDB.
+    Returns:
+        result: (list) List contains next_ids of all NextAdmins role
+            members.
+    """
+    next_admins_role_id = (
+        await r.table("roles")
+        .filter({"name": "NextAdmins"})
+        .coerce_to("array")
+        .get_field("role_id")
+        .run(conn)
+    )
+    return (
+        await r.table("role_members")
+        .filter({"role_id": next_admins_role_id[0]})
+        .get_field("related_id")
+        .coerce_to("array")
+        .run(conn)
+    )

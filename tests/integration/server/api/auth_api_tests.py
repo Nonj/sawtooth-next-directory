@@ -14,11 +14,10 @@
 # -----------------------------------------------------------------------------
 """Authentication API Endpoint Test"""
 import os
-import time
 import pytest
 import requests
 
-from tests.utilities import create_test_user
+from tests.utilities.creation_utils import create_next_admin, create_test_user
 
 LDAP_SERVER = os.getenv("LDAP_SERVER")
 
@@ -30,8 +29,8 @@ INVALID_INPUTS = [
     ({"password": "123456"}, "Bad Request: id field is required", 400),
     ({"id": "susan20"}, "Bad Request: password field is required", 400),
     ({}, "Bad Request: id field is required", 400),
-    ({"id": "susan20", "password": ""}, "Incorrect username or password.", 400),
-    ({"id": "_test1", "password": ""}, "Incorrect username or password.", 400),
+    ({"id": "susan20", "password": "purple"}, "Incorrect username or password.", 401),
+    ({"id": "_test1", "password": "123456"}, "Incorrect username or password.", 400),
 ]
 
 INVALID_LDAP_INPUTS = [
@@ -52,8 +51,8 @@ USER_INPUT = {
 def test_valid_auth_inputs(login_inputs, expected_result, expected_status_code):
     """ Test authorization API endpoint with valid inputs """
     with requests.Session() as session:
+        create_next_admin(session)
         create_test_user(session, USER_INPUT)
-        time.sleep(5)
         response = session.post(
             "http://rbac-server:8000/api/authorization/", json=login_inputs
         )
@@ -66,8 +65,9 @@ def test_valid_auth_inputs(login_inputs, expected_result, expected_status_code):
 )
 def test_invalid_auth_inputs(login_inputs, expected_result, expected_status_code):
     """ Test authorization API endpoint with invalid inputs """
-    create_test_user(requests.Session(), USER_INPUT)
     with requests.Session() as session:
+        create_next_admin(session)
+        create_test_user(session, USER_INPUT)
         response = session.post(
             "http://rbac-server:8000/api/authorization/", json=login_inputs
         )

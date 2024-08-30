@@ -15,8 +15,8 @@
 """Utility functions to assist with tests in cleanup or running."""
 from time import sleep
 import rethinkdb as r
-from rbac.providers.common.db_queries import connect_to_db
 from rbac.common.logs import get_default_logger
+from rbac.providers.common.db_queries import connect_to_db
 
 LOGGER = get_default_logger(__name__)
 
@@ -41,6 +41,24 @@ def add_role_member(session, role_id, payload):
     return response
 
 
+def add_role_owner(session, role_id, payload):
+    """Create a proposal for adding a role owner
+    Args:
+        session:
+            object: current session object
+        role_id:
+            str: id of role that is to be added to
+        payload:
+            dictionary: in the format of
+                {
+                    "id": "ID OF USER CURRENTLY BEING ADDED"
+                }
+    """
+    return session.post(
+        "http://rbac-server:8000/api/roles/{}/owners".format(role_id), json=payload
+    )
+
+
 def approve_proposal(session, proposal_id):
     """Create a role and authenticate to use api endpoints during testing."""
     proposal_payload = {"status": "APPROVED", "reason": "Approved by integration test"}
@@ -52,23 +70,9 @@ def approve_proposal(session, proposal_id):
     return response
 
 
-def create_test_role(session, role_payload):
-    """Create a role and authenticate to use api endpoints during testing."""
-    response = session.post("http://rbac-server:8000/api/roles", json=role_payload)
-    sleep(3)
-    return response
-
-
 def create_test_task(session, task_payload):
     """Create a task and authenticate to use api endpoints during testing."""
     response = session.post("http://rbac-server:8000/api/tasks", json=task_payload)
-    sleep(3)
-    return response
-
-
-def create_test_user(session, user_payload):
-    """Create a user and authenticate to use api endpoints during testing."""
-    response = session.post("http://rbac-server:8000/api/users", json=user_payload)
     sleep(3)
     return response
 
@@ -107,7 +111,7 @@ def delete_role_by_name(name):
             conn
         )
         conn.close()
-    except KeyError:
+    except (KeyError, IndexError):
         conn.close()
 
 
@@ -226,6 +230,138 @@ def get_user_next_id(remote_id):
     return next_id
 
 
+def wait_for_prpsl_rjctn_in_db(object_id, max_attempts=10, delay=0.5):
+    """Polls rethinkdb for the requested proposal until it has been rejected.
+    Useful when commiting a delete transaction in sawtooth and waiting for the
+    related proposals to be rejected for dependent chained transactions.
+
+    Args:
+        object_id
+            str:    Object_id of the proposal to wait for.
+        max_attempts:
+            int:    The number of times to attempt to find the given role before
+                    giving up and returning False.
+                    Default value: 10
+        delay:
+            float:  The number of seconds to wait between query attempts.
+                    Default value: 0.5
+    Returns:
+        resource_removed:
+            bool:
+                True:   If the role is successfully found within the given
+                        number of attempts.
+            bool:
+                False:  If the role is not found after the given number of
+                        attempts.
+    """
+    is_proposal_closed = False
+    count = 0
+    with connect_to_db() as conn:
+        while not is_proposal_closed and count < max_attempts:
+            resource = (
+                r.table("proposals")
+                .filter({"object_id": object_id, "status": "REJECTED"})
+                .coerce_to("array")
+                .run(conn)
+            )
+            if resource:
+                is_proposal_closed = True
+            count += 1
+            sleep(delay)
+    return is_proposal_closed
+
+
+def wait_for_resource_removal_in_db(
+    table, index, identifier, max_attempts=10, delay=0.5
+):
+    """Polls rethinkdb for the requested resource until it has been removed.
+    Useful when commiting a delete transaction in sawtooth and waiting for the
+    resource to be removed from rethink for dependent chained transactions.
+
+    Args:
+        table:
+            str:    the name of a table to query for the resource in.
+        index:
+            str:    the name of the index of the identifier to query for.
+        identifier:
+            str:    A id for a given resource to wait for.
+        max_attempts:
+            int:    The number of times to attempt to find the given role before
+                    giving up and returning False.
+                        Default value: 10
+        delay:
+            float:  The number of seconds to wait between query attempts.
+                        Default value: 0.5
+    Returns:
+        resource_removed:
+            bool:
+                True:   If the role was successfully removed within the given
+                        number of attempts.
+            bool:
+                False:  If the role is  found after the given number of
+                        attempts.
+    """
+    resource_removed = False
+    count = 0
+    with connect_to_db() as conn:
+        while not resource_removed and count < max_attempts:
+            resource = (
+                r.table(table).filter({index: identifier}).coerce_to("array").run(conn)
+            )
+            if not resource:
+                resource_removed = True
+            count += 1
+            sleep(delay)
+    return resource_removed
+
+
+def wait_for_role_in_db(role_id, max_attempts=10, delay=0.5):
+    """ Polls rethinkdb for the requested role. Useful when commiting a
+    transaction in sawtooth and waiting for the resource to be upserted in
+    rethink for depended chained transactions.
+
+    Args:
+        role_id:
+            str:    A next_id for a given role to wait for.
+        max_attempts:
+            int:    The number of times to attempt to find the given role before
+                    giving up and returning False.
+                    Default value: 10
+        delay:
+            float:  The number of seconds to wait between query attempts.
+                    Default value: 0.5
+    Returns:
+        bool:
+            True:   If the role is successfully found within the given number of
+                    attempts.
+        bool:
+            False:  If the role is not found after the given number of attempts.
+    """
+    role_found = False
+    count = 0
+    while not role_found and count < max_attempts:
+        role_found = is_role_in_db(role_id)
+        count += 1
+        sleep(delay)
+    return role_found
+
+
+def is_role_in_db(role_id):
+    """Returns whether the role is in the roles table in rethink.
+    Args:
+        email:
+            str: an email address.
+    Returns:
+        True: The role was found in rethink
+        False: the role was not found in rethink
+    """
+    with connect_to_db() as db_connection:
+        result = (
+            r.table("roles").filter({"role_id": role_id}).count().run(db_connection)
+        )
+        return result > 0
+
+
 def get_role_owners(role_id):
     """Returns a list of owner next_ids from a role in rethinkDB.
 
@@ -259,23 +395,6 @@ def get_pack_by_pack_id(pack_id):
             .run(db_connection)
         )
     return pack
-
-
-def get_role(name):
-    """Returns a role in rethinkDB via name.
-
-    Args:
-        name:
-            str: a name of a role in rethinkDB.
-    """
-    with connect_to_db() as db_connection:
-        role = (
-            r.table("roles")
-            .filter({"name": name})
-            .coerce_to("array")
-            .run(db_connection)
-        )
-    return role
 
 
 def is_group_in_db(name):
@@ -348,27 +467,6 @@ def get_role_members(role_id):
             .run(db_connection)
         )
     return role_members
-
-
-def log_in(session, credentials_payload):
-    """Log in as the user with the given credentials for the given session
-
-    Args:
-        session:
-            object: current session object
-
-        credentials_payload:
-            dictionary: in the format of
-                {
-                    "id": "USERNAME OF USER",
-                    "password": "PASSWORD OF ASSOCIATED USER"
-                }
-    """
-    response = session.post(
-        "http://rbac-server:8000/api/authorization/", json=credentials_payload
-    )
-    sleep(3)
-    return response
 
 
 def update_proposal(session, proposal_id, proposal_payload):
@@ -516,3 +614,47 @@ def get_pack_owners_by_user(next_id):
             .coerce_to("array")
             .run(db_connection)
         )
+
+
+def update_manager(session, next_id, payload):
+    """Update manager and authenticate to use api endpoints during testing."""
+    response = session.put(
+        "http://rbac-server:8000/api/users/{}/manager".format(next_id), json=payload
+    )
+    sleep(3)
+    return response
+
+
+def get_outbound_queue_entry(data, max_attempts=10, delay=0.5):
+    """ Gets an entry from outbound_queue table that matches the passed in
+    data dictionary.
+
+    Args:
+        data: (dict) Entry from users/roles table without created_date field.
+        max_attempts:
+            int: The number of times to attempt to find the given outbound_queue
+                 entry.
+                    Default value: 10
+        delay
+            float: The number of seconds to wait between query attempts.
+                Default value: 0.5
+    Returns:
+        outbound_queue_entry: (dict) The entry that has the data field
+            matching the data parameter. This entry would contain the
+            following fields: data, data_type, provider_id, sync_type,
+            timestamp.
+    """
+    query_count = 0
+    outbound_queue_entry = []
+    with connect_to_db() as conn:
+        while not outbound_queue_entry and query_count < max_attempts:
+            outbound_queue_entry = (
+                r.table("outbound_queue")
+                .filter({"data": data})
+                .coerce_to("array")
+                .run(conn)
+            )
+            if not outbound_queue_entry:
+                query_count += 1
+                sleep(delay)
+    return outbound_queue_entry

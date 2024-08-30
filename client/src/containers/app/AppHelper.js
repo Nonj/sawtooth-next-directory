@@ -97,6 +97,7 @@ export const appState = (state) => ({
   expired:             UserSelectors.expired(state),
   expiredCount:        UserSelectors.expiredCount(state),
   id:                  UserSelectors.id(state),
+  isAdministrator:     UserSelectors.isAdministrator(state),
   me:                  UserSelectors.me(state),
   people:              UserSelectors.people(state),
   peopleTotalCount:    UserSelectors.peopleTotalCount(state),
@@ -128,6 +129,7 @@ export const appDispatch = (dispatch) => ({
   getOpenProposals:   (id) => dispatch(Approver.openProposalsRequest(id)),
   createRole:    (payload) => dispatch(Approver.createRoleRequest(payload)),
   createPack:    (payload) => dispatch(Approver.createPackRequest(payload)),
+  deletePack:         (id) => dispatch(Approver.deletePackRequest(id)),
   setOnBehalfOf:      (id) => dispatch(Approver.onBehalfOfSet(id)),
   getOrganization: (id, isMe) =>
     dispatch(Approver.organizationRequest(id, isMe)),
@@ -170,6 +172,7 @@ export const appDispatch = (dispatch) => ({
   },
 
   // User
+  editUser:    (payload) => dispatch(User.editUserRequest(payload)),
   getMe:              () => dispatch(User.meRequest()),
   logout:             () => logout(dispatch),
   getUser:      (id, summary) =>

@@ -163,7 +163,6 @@ class PeopleChat extends Component {
       activeIndex,
       activeUser,
       fetchingOrganization,
-      organization,
       setFlow } = this.props;
     if (activeIndex === 1) return null;
 
@@ -181,17 +180,6 @@ class PeopleChat extends Component {
       content: {
         content: (
           <div className='next-people-organization-panel'>
-            { organization &&
-              !fetchingOrganization &&
-              organization.managers.length === 0 &&
-              organization.direct_reports.length === 0 &&
-              organization.peers.length === 0 &&
-              <div className='next-people-organization-no-items'>
-                <span>
-                  No organization info
-                </span>
-              </div>
-            }
             <Organization
               compact
               activeUser={activeUser}
@@ -228,6 +216,7 @@ class PeopleChat extends Component {
    * @returns {object}
    */
   rolesPanel = (user) => {
+    const { setFlow } = this.props;
     const { currentRolesMaxCount } = this.state;
     return {
       key: 'roles-panel',
@@ -265,11 +254,10 @@ class PeopleChat extends Component {
                 <Button
                   basic
                   animated
-                  as={Link}
-                  to={'/'}
+                  onClick={() => setFlow(2)}
                   size='mini'>
                   <Button.Content visible>
-                  VIEW ALL
+                  VIEW ALL ROLES
                   </Button.Content>
                   <Button.Content hidden>
                     <Icon name='arrow right'/>
@@ -293,6 +281,9 @@ class PeopleChat extends Component {
       activeUser,
       directReports,
       handleOnBehalfOf,
+      isAdministrator,
+      id,
+      organization,
       userFromId } = this.props;
 
     const user = userFromId(activeUser);
@@ -311,8 +302,9 @@ class PeopleChat extends Component {
                     {this.userEmail(activeUser)}
                   </Header.Subheader>
                 </Header>
-                { directReports &&
-                  directReports.includes(activeUser) &&
+                { organization && directReports && id &&
+                  (organization.managers.includes(id) ||
+                  directReports.includes(activeUser)) &&
                   <div>
                     <Label color='green' horizontal>
                       Direct Report
@@ -324,6 +316,19 @@ class PeopleChat extends Component {
                         to={`people/${activeUser}/pending`}
                         onClick={handleOnBehalfOf}>
                         Pending Approvals
+                      </Button>
+                    </div>
+                  </div>
+                }
+                { process.env.REACT_APP_ENABLE_NEXT_BASE_USE === '1' &&
+                  isAdministrator &&
+                  <div>
+                    <div id='next-people-chat-pending-approvals-button'>
+                      <Button
+                        as={Link}
+                        size='large'
+                        to={`people/${activeUser}/edit`}>
+                        Edit
                       </Button>
                     </div>
                   </div>

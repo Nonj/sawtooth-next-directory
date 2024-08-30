@@ -4,6 +4,9 @@
 # OS
 .DS_Store
 
+# maintainers file
+MAINTAINERS.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -60,9 +63,8 @@ coverage/
 *.mo
 *.pot
 
-# Django stuff:
+# LOG files:
 *.log
-local_settings.py
 
 # Flask stuff:
 instance/
@@ -138,3 +140,7 @@ secrets.sh
 
 # Nginx Config file
 nginx.conf
+
+# Log files
+NEXT_output.log
+NEXT_error.log

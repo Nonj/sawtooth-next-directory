@@ -18,21 +18,22 @@ import json
 
 from sanic import Blueprint
 
-from rbac.server.api.auth import authorized
-from rbac.server.api import utils
-
-from rbac.server.db import users_query
 from rbac.app.config import CHATBOT_REST_ENDPOINT
-
 from rbac.common.logs import get_default_logger
+from rbac.server.api import utils
+from rbac.server.db import users_query
+from rbac.server.db.db_utils import create_connection
 
 LOGGER = get_default_logger(__name__)
 
 CHATBOT_BP = Blueprint("chatbot")
 
+# TODO: FIXME: sanic-openapi @doc.exclude(True) decorator does not currently work on
+#  non-HTTP method or static routes. When a viable option becomes available apply it
+# to this route so that it is excluded from swagger.
+
 
 @CHATBOT_BP.websocket("api/chatbot")
-@authorized()
 async def chatbot(request, web_socket):
     """Chatbot websocket listener."""
     while True:
@@ -56,17 +57,16 @@ async def create_response(request, recv):
 async def update_tracker(request, recv):
     """Update the chatbot tracker."""
     if recv.get("approver_id"):
+        conn = await create_connection()
         owner_resource = await users_query.fetch_user_resource_summary(
-            request.app.config.DB_CONN, recv.get("approver_id")
+            conn, recv.get("approver_id")
         )
         await create_event(
             request, recv.get("next_id"), "approver_name", owner_resource.get("name")
         )
     if recv.get("resource_id"):
         LOGGER.info("[Chatbot] %s: Updating tracker token", recv.get("next_id"))
-        await create_event(
-            request, recv.get("next_id"), "token", utils.extract_request_token(request)
-        )
+        await create_event(request, recv.get("next_id"), "token", recv.get("token"))
 
 
 async def create_event(request, next_id, name, value):

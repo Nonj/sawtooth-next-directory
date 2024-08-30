@@ -1,4 +1,5 @@
 PyYAML==4.2b1
+bcrypt==3.1.7
 black==18.9b0
 environs==4.1.0
 itsdangerous==0.24
@@ -28,3 +29,4 @@ rasa_core==0.12.2
 rasa_nlu==0.13.8
 azure-eventhub==1.1.1
 pytz==2018.7
+sanic-openapi==0.5.3

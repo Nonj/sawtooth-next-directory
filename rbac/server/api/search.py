@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ------------------------------------------------------------------------------
-"""Search APIs."""
-
+"""APIs and functions utilized to search."""
 import math
 
 from sanic import Blueprint
 from sanic.response import json
+from sanic_openapi import doc
 
 from rbac.common.logs import get_default_logger
 from rbac.server.api.auth import authorized
+from rbac.server.api.utils import log_request
+from rbac.server.db.db_utils import create_connection
 from rbac.server.db.packs_query import search_packs, search_packs_count
 from rbac.server.db.roles_query import search_roles, search_roles_count
 from rbac.server.db.users_query import search_users, search_users_count
@@ -30,9 +32,37 @@ SEARCH_BP = Blueprint("search")
 
 
 @SEARCH_BP.post("api/search")
+@doc.summary("API Endpoint to get all roles, packs, or users containing a string.")
+@doc.description("API Endpoint to get all roles, packs, or users containing a string.")
+@doc.consumes(
+    doc.JsonBody(
+        {
+            "query": {
+                "page_size": int,
+                "page": int,
+                "search_object_types": [str],
+                "search_input": str,
+            }
+        },
+        description="For search_object_types, you may include: role, pack, and/or user.",
+    ),
+    location="body",
+    content_type="application/json",
+)
+@doc.produces(
+    {"data": {"roles": {}, "packs": {}, "users": {}}, "page": int, "total_pages": int},
+    description="Success response with search results",
+    content_type="application/json",
+)
+@doc.response(
+    401,
+    {"code": int, "message": str},
+    description="Unauthorized: The request lacks valid authentication credentials.",
+)
 @authorized()
 async def search_all(request):
     """API Endpoint to get all roles, packs, or users containing a string."""
+    log_request(request)
     search_query = request.json.get("query")
 
     # Check for valid payload containing query and search object types
@@ -52,36 +82,26 @@ async def search_all(request):
     object_counts = []
 
     # Run search queries
+    conn = await create_connection()
     if "pack" in search_query["search_object_types"]:
         # Fetch packs with search input string
 
-        pack_results = await search_packs(
-            request.app.config.DB_CONN, search_query, paging
-        )
+        pack_results = await search_packs(conn, search_query, paging)
         data["packs"] = pack_results
-        object_counts.append(
-            await search_packs_count(request.app.config.DB_CONN, search_query)
-        )
+        object_counts.append(await search_packs_count(conn, search_query))
 
     if "role" in search_query["search_object_types"]:
         # Fetch roles with search input string
-        role_results = await search_roles(
-            request.app.config.DB_CONN, search_query, paging
-        )
+        role_results = await search_roles(conn, search_query, paging)
         data["roles"] = role_results
-        object_counts.append(
-            await search_roles_count(request.app.config.DB_CONN, search_query)
-        )
+        object_counts.append(await search_roles_count(conn, search_query))
 
     if "user" in search_query["search_object_types"]:
         # Fetch users with search input string
-        user_results = await search_users(
-            request.app.config.DB_CONN, search_query, paging
-        )
+        user_results = await search_users(conn, search_query, paging)
         data["users"] = user_results
-        object_counts.append(
-            await search_users_count(request.app.config.DB_CONN, search_query)
-        )
+        object_counts.append(await search_users_count(conn, search_query))
+    conn.close()
 
     total_pages = get_total_pages(object_counts, search_query["page_size"])
 

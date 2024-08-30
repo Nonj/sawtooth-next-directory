@@ -15,7 +15,7 @@ limitations under the License.
 
 
 import React, { Component } from 'react';
-import { Header, Icon } from 'semantic-ui-react';
+import { Header } from 'semantic-ui-react';
 
 
 import './RequesterChat.css';
@@ -121,8 +121,16 @@ class RequesterChat extends Component {
 
         // Construct intent message given user is an owner
         // of the current pack or role
-        payload.text = `/${update || 'owner'}${JSON.stringify(
-          {...slots, owner_status: 'OWNER'})}`;
+
+        if (memberOf && memberOf.find(
+          item => item.id === resource.id)
+        ) {
+          payload.text = `/${update || 'owner'}${JSON.stringify(
+            {...slots, owner_status: 'OWNER'})}`;
+        } else {
+          payload.text = `/${update || 'owner'}${JSON.stringify(
+            {...slots, owner_status: 'OWNER', member_status: 'NOT_MEMBER'})}`;
+        }
 
       } else if (me && me.proposals.find(
         proposal => proposal.object_id === resource.id &&
@@ -176,7 +184,7 @@ class RequesterChat extends Component {
         { title &&
           <Header id='next-chat-header' size='small' inverted>
             {title}
-            <Icon link name='pin' size='mini' className='pull-right'/>
+            {/* <Icon link name='pin' size='mini' className='pull-right'/> */}
           </Header>
         }
         <div id='next-requester-chat-transcript-container'>

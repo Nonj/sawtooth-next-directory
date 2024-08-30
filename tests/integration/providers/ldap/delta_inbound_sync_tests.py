@@ -34,22 +34,24 @@ import pytest
 import rethinkdb as r
 from environs import Env
 
-from rbac.providers.common.db_queries import connect_to_db
 from rbac.common.crypto.secrets import generate_api_key
+from rbac.common.logs import get_default_logger
+from rbac.providers.common.db_queries import connect_to_db
 from rbac.providers.ldap.delta_inbound_sync import (
     insert_updated_entries,
     insert_deleted_entries,
+    remove_outbound_duplicates,
 )
-from tests.utilities import (
+from tests.utilities.creation_utils import create_next_admin, create_test_role
+from tests.utilities.db_queries import get_role_by_name
+from tests.utils import (
     check_user_is_pack_owner,
-    create_test_role,
     create_test_pack,
     delete_role_by_name,
     delete_pack_by_name,
     get_auth_entry,
     get_deleted_user_entries,
     get_role_id_from_cn,
-    get_role,
     get_role_admins,
     get_role_members,
     get_role_owners,
@@ -60,7 +62,10 @@ from tests.utilities import (
     get_pack_owners_by_user,
     is_user_in_db,
     is_group_in_db,
+    wait_for_resource_removal_in_db,
 )
+
+LOGGER = get_default_logger(__name__)
 
 SERVER = Server("my_fake_server", get_info=OFFLINE_AD_2012_R2)
 
@@ -78,6 +83,20 @@ TEST_USERS = [
 
 TEST_GROUPS = [{"common_name": "test_group", "name": "test_group"}]
 
+# entry_data, outbound_status, expected_result.
+TEST_CHECK_OUTBOUND_QUEUE = [
+    (
+        {"data": {"members": ["test_user_1"], "remote_id": "role_1"}},
+        "UNCONFIRMED",
+        True,
+    ),
+    (
+        {"data": {"members": ["test_user_1, test_user_2"], "remote_id": "role_2"}},
+        "CONFIRMED",
+        True,
+    ),
+    ({"data": {"members": ["test_user_3"], "remote_id": "role_3"}}, None, False),
+]
 
 # ------------------------------------------------------------------------------
 # <==== END TEST PARAMETERS ===================================================>
@@ -170,8 +189,9 @@ def _get_group_attributes(common_name, name, owner=""):
         "objectClass": ["top", "group"],
         "whenChanged": datetime.utcnow().replace(tzinfo=timezone.utc),
         "whenCreated": datetime.utcnow().replace(tzinfo=timezone.utc),
-        "managedBy": owner,
     }
+    if owner:
+        group["managedBy"] = owner
     return group
 
 
@@ -352,7 +372,7 @@ def get_fake_user(ldap_connection, user_common_name):
 
 
 def get_fake_group(ldap_connection, group_common_name):
-    """Gets a fake user from the mock AD server.
+    """Gets a fake group from the mock AD server.
 
     Args:
         ldap_connection:
@@ -363,7 +383,7 @@ def get_fake_group(ldap_connection, group_common_name):
 
     Returns:
         fake_user:
-            arr<obj>: an array containing any users with a matching common name.
+            arr<obj>: an array containing any groups with a matching common name.
     """
     search_parameters = {
         "search_base": "OU=Roles,OU=Security,OU=Groups,DC=AD2012,DC=LAB",
@@ -372,8 +392,7 @@ def get_fake_group(ldap_connection, group_common_name):
         "paged_size": len(TEST_GROUPS),
     }
     ldap_connection.search(**search_parameters)
-    fake_user = ldap_connection.entries
-    return fake_user
+    return ldap_connection.entries
 
 
 def put_in_inbound_queue(fake_data, data_type):
@@ -686,7 +705,7 @@ def test_add_group_member(ldap_connection, group, user):
                     str: A username of an AD user object.
 
                 given_name:
-                    str: A given name of an AD suer object.
+                    str: A given name of an AD user object.
     """
     user_distinct_name = [
         "CN=%s,OU=Users,OU=Accounts,DC=AD2012,DC=LAB" % user["common_name"]
@@ -731,7 +750,7 @@ def test_remove_group_member(ldap_connection, group, user):
                     str: A username of an AD user object.
 
                 given_name:
-                    str: A given name of an AD suer object.
+                    str: A given name of an AD user object.
     """
     user_distinct_name = [
         "CN=%s,OU=Users,OU=Accounts,DC=AD2012,DC=LAB" % user["common_name"]
@@ -777,7 +796,7 @@ def test_add_replace_group_owner(ldap_connection, group, user):
                     str: A username of an AD user object.
 
                 given_name:
-                    str: A given name of an AD suer object.
+                    str: A given name of an AD user object.
     """
     group_distinct_name = (
         "CN=%s,OU=Roles,OU=Security,OU=Groups,DC=AD2012,DC=LAB" % group["common_name"]
@@ -830,81 +849,160 @@ def test_delete_user(ldap_connection):
             obj: A bound mock mock_ldap_connection
     """
     # Create fake user and attach as owner to a role
-    create_fake_user(ldap_connection, "jchan20", "Jackie Chan", "Jackie")
-    user_remote_id = "CN=jchan20,OU=Users,OU=Accounts,DC=AD2012,DC=LAB"
-    create_fake_group(ldap_connection, "jchan_role", "jchan_role", user_remote_id)
-    group_distinct_name = (
-        "CN=jchan_role,OU=Roles,OU=Security,OU=Groups,DC=AD2012,DC=LAB"
-    )
-    addMembersToGroups.ad_add_members_to_groups(
-        ldap_connection, user_remote_id, group_distinct_name, fix=True
-    )
-    fake_user = get_fake_user(ldap_connection, "jchan20")
-    put_in_inbound_queue(fake_user, "user")
-    fake_group = get_fake_group(ldap_connection, "jchan_role")
-    put_in_inbound_queue(fake_group, "group")
-    time.sleep(3)
+    with requests.Session() as session:
+        create_next_admin(session)
+        create_fake_user(ldap_connection, "jchan20", "Jackie Chan", "Jackie")
+        user_remote_id = "CN=jchan20,OU=Users,OU=Accounts,DC=AD2012,DC=LAB"
+        create_fake_group(ldap_connection, "jchan_role", "jchan_role", user_remote_id)
+        group_distinct_name = (
+            "CN=jchan_role,OU=Roles,OU=Security,OU=Groups,DC=AD2012,DC=LAB"
+        )
+        addMembersToGroups.ad_add_members_to_groups(
+            ldap_connection, user_remote_id, group_distinct_name, fix=True
+        )
+        fake_user = get_fake_user(ldap_connection, "jchan20")
+        put_in_inbound_queue(fake_user, "user")
+        fake_group = get_fake_group(ldap_connection, "jchan_role")
+        put_in_inbound_queue(fake_group, "group")
+        time.sleep(3)
 
-    # See if owner and role are in the system
-    email = "jchan20@clouddev.corporate.t-mobile.com"
-    assert is_user_in_db(email) is True
-    assert is_group_in_db("jchan_role") is True
+        # See if owner and role are in the system
+        email = "jchan20@clouddev.corporate.t-mobile.com"
+        assert is_user_in_db(email) is True
+        assert is_group_in_db("jchan_role") is True
 
-    # See if all LDAP user has entries in the following
-    # off chain tables: user_mapping and metadata
-    user = get_user_in_db_by_email(email)
-    next_id = user[0]["next_id"]
-    assert get_user_mapping_entry(next_id)
-    assert get_user_metadata_entry(next_id)
+        # See if all LDAP user has entries in the following
+        # off chain tables: user_mapping and metadata
+        user = get_user_in_db_by_email(email)
+        next_id = user[0]["next_id"]
+        assert get_user_mapping_entry(next_id)
+        assert get_user_metadata_entry(next_id)
 
-    # See that the owner is assigned to correct role
-    role = get_role("jchan_role")
-    owners = get_role_owners(role[0]["role_id"])
-    members = get_role_members(role[0]["role_id"])
-    assert owners[0]["related_id"] == next_id
-    assert members[0]["related_id"] == next_id
+        # See that the owner is assigned to correct role
+        role = get_role_by_name("jchan_role")
+        owners = get_role_owners(role[0]["role_id"])
+        members = get_role_members(role[0]["role_id"])
+        assert owners[0]["related_id"] == next_id
+        assert members[0]["related_id"] == next_id
 
-    # Create a NEXT role with LDAP user as an admin and
-    # check for LDAP user's entry in auth table
-    next_role_id = create_next_role_ldap(user=user[0], role_name="managers")
-    admins = get_role_admins(next_role_id)
-    assert admins[0]["related_id"] == next_id
-    assert get_auth_entry(next_id)
+        # Create a NEXT role with LDAP user as an admin and
+        # check for LDAP user's entry in auth table
+        next_role_id = create_next_role_ldap(user=user[0], role_name="managers")
+        admins = get_role_admins(next_role_id)
+        assert admins[0]["related_id"] == next_id
+        assert get_auth_entry(next_id)
 
-    # Create a NEXT pack with LDAP user as an owner
-    next_pack_id = create_pack_ldap(user=user[0], pack_name="technology department")
-    assert check_user_is_pack_owner(next_pack_id, next_id)
+        # Create a NEXT pack with LDAP user as an owner
+        next_pack_id = create_pack_ldap(user=user[0], pack_name="technology department")
+        assert check_user_is_pack_owner(next_pack_id, next_id)
 
-    # Delete user and verify LDAP user and related off chain
-    # table entries have been deleted, role still exists
-    # and role relationships have been deleted
-    insert_deleted_entries([user_remote_id], "user_deleted")
-    time.sleep(3)
+        # Delete user and verify LDAP user and related off chain
+        # table entries have been deleted, role still exists
+        # and role relationships have been deleted
+        insert_deleted_entries([user_remote_id], "user_deleted")
+        time.sleep(3)
 
-    assert get_deleted_user_entries(next_id) == []
-    assert get_pack_owners_by_user(next_id) == []
-    assert is_group_in_db("jchan_role") is True
-    assert get_role_owners(role[0]["role_id"]) == []
-    assert get_role_admins(next_role_id) == []
-    assert get_role_members(role[0]["role_id"]) == []
+        assert get_deleted_user_entries(next_id) == []
+        assert get_pack_owners_by_user(next_id) == []
+        assert is_group_in_db("jchan_role") is True
+        assert get_role_owners(role[0]["role_id"]) == []
+        assert get_role_admins(next_role_id) == []
+        assert get_role_members(role[0]["role_id"]) == []
 
-    delete_role_by_name("managers")
-    delete_pack_by_name("technology department")
+        delete_role_by_name("managers")
+        delete_pack_by_name("technology department")
 
 
 def test_delete_role(ldap_connection):
-    """Deletes a AD role in NEXT
+    """Delete a AD role in NEXT and all related tables
 
     Args:
         ldap_connection:
             obj: A bound mock mock_ldap_connection
     """
-    create_fake_group(ldap_connection, "sysadmins", "sysadmins")
+    create_fake_user(ldap_connection, "jchan", "Jackie C", "Jackiec")
+    user_remote_id = "CN=jchan,OU=Users,OU=Accounts,DC=AD2012,DC=LAB"
+    fake_user = get_fake_user(ldap_connection, "jchan")
+    put_in_inbound_queue(fake_user, "user")
+
+    create_fake_group(ldap_connection, "sysadmins", "sysadmins", user_remote_id)
     fake_group = get_fake_group(ldap_connection, "sysadmins")
     put_in_inbound_queue(fake_group, "group")
+    time.sleep(3)
+    group_distinct_name = "CN=sysadmins,OU=Roles,OU=Security,OU=Groups,DC=AD2012,DC=LAB"
+    addMembersToGroups.ad_add_members_to_groups(
+        ldap_connection, user_remote_id, group_distinct_name, fix=True
+    )
+
+    assert is_user_the_role_owner("sysadmins", "jchan") is True
+    assert is_group_in_db("sysadmins") is True
+
+    role = get_role_by_name("sysadmins")
+    role_id = role[0]["role_id"]
     insert_deleted_entries(
         ["CN=sysadmins,OU=Roles,OU=Security,OU=Groups,DC=AD2012,DC=LAB"],
         "group_deleted",
     )
-    result = is_group_in_db("sysadmins")
-    assert result is False
+    time.sleep(3)
+
+    is_role_removed = wait_for_resource_removal_in_db("roles", "name", "sysadmins")
+    assert is_role_removed is True
+    is_owner_removed = wait_for_resource_removal_in_db(
+        "role_owners", "role_id", role_id
+    )
+    assert is_owner_removed is True
+    is_member_removed = wait_for_resource_removal_in_db(
+        "role_members", "role_id", role_id
+    )
+    assert is_member_removed is True
+
+
+def test_created_date_comparison(ldap_connection):
+    """ Tests that imported users/roles have the same created_date
+    value in RethinkDB as the created_date in their source.
+    """
+    create_fake_group(ldap_connection, "pokemons", "pokemons")
+    fake_group = get_fake_group(ldap_connection, "pokemons")
+    put_in_inbound_queue(fake_group, "group")
+    time.sleep(2)
+    ldap_role = get_role_by_name("pokemons")
+    assert fake_group[0].whenCreated.value == ldap_role[0]["created_date"]
+
+
+@pytest.mark.parametrize(
+    "entry_data, outbound_status, expected_result", TEST_CHECK_OUTBOUND_QUEUE
+)
+def test_outbound_queue_check(entry_data, outbound_status, expected_result):
+    """ Tests that any inbound queue entries are checked against the outbound
+    queue before insertion. If a duplicate entry exists in the outbound queue
+    the function should return `True`, indicating the entry has already been
+    written to sawtooth and that both entries should be deleted. Otherwise,
+    the function should return `False`, indicating that the entry should be
+    inserted.
+
+    Args:
+        entry_data:
+            obj:    A dict containing a valid NEXT role object. Only
+                    the `whenChanged` key is directly called in this obj, so
+                    the rest may be arbitrary for this test (update if needed).
+        outbound_status:
+            str:    A string containing a valid NEXT `status` (
+                    `CONFIRMED` or `UNCONFIRMED`). May be an empty string.
+        expected_result:
+            bool:   The boolean value that is expected to be returned by
+                    put_in_outbound_queue().
+    """
+    with connect_to_db() as conn:
+        if expected_result:
+            outbound_entry = {**entry_data}
+            if outbound_status:
+                outbound_entry["status"] = outbound_status
+                result = (
+                    r.table("outbound_queue")
+                    .insert(outbound_entry)
+                    .coerce_to("object")
+                    .run(conn)
+                )
+                assert result["inserted"] > 0
+        result = remove_outbound_duplicates(entry_data["data"], conn)
+        assert result == expected_result

@@ -34,7 +34,7 @@ export function * login (api, action) {
     });
 
     res.ok ?
-      yield put(AuthActions.loginSuccess(true, res.data.data)) :
+      yield put(AuthActions.loginSuccess(true, res.data)) :
       yield put(AuthActions.loginFailure(res.data));
   } catch (err) {
     console.error(err);
@@ -51,16 +51,14 @@ export function * login (api, action) {
 export function * signup (api, action) {
   try {
     yield put(showLoading());
-    const { username, password, name, email } = action;
+    const { username, password } = action;
     const res = yield call(api.signup, {
-      username,
+      id: username,
       password,
-      email,
-      name,
     });
 
     res.ok ?
-      yield put(AuthActions.signupSuccess(true, res.data.data)) :
+      yield put(AuthActions.signupSuccess(true, res.data)) :
       yield put(AuthActions.signupFailure(res.data));
   } catch (err) {
     console.error(err);
@@ -96,8 +94,8 @@ export function * logout (api, action) {
  */
 export function * checkUserExists (api, action) {
   try {
-    const { name } = action;
-    const res = yield call(api.userExists, name);
+    const { username } = action;
+    const res = yield call(api.userExists, username);
     res.ok ?
       yield put(AuthActions.userExistsSuccess(res.data.exists)) :
       yield put(AuthActions.userExistsFailure(res.data));

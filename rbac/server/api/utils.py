@@ -13,8 +13,8 @@
 # limitations under the License.
 # -----------------------------------------------------------------------------
 """Utility functions to support APIs."""
-
 import binascii
+import datetime as dt
 import rethinkdb as r
 
 from sanic.response import json
@@ -25,15 +25,17 @@ from rbac.common.crypto.keys import Key
 from rbac.common.crypto.secrets import decrypt_private_key, deserialize_api_key
 from rbac.common.logs import get_default_logger
 from rbac.server.api.errors import ApiBadRequest, ApiInternalError, ApiUnauthorized
-from rbac.server.db import auth_query
 from rbac.server.db import blocks_query
+from rbac.server.db.auth_query import get_auth_by_next_id
 from rbac.server.db.db_utils import create_connection
-from rbac.server.db.roles_query import get_role_by_name, get_role_membership
+from rbac.server.db.roles_query import (
+    get_role_by_name,
+    get_role_membership,
+    fetch_role_owners,
+)
+
 
 LOGGER = get_default_logger(__name__)
-
-SIGNATURE_KEY = "RBAC_AUTH_SIGNATURE"
-PAYLOAD_KEY = "RBAC_AUTH_HEADER_PAYLOAD"
 
 
 def validate_fields(required_fields, body):
@@ -47,30 +49,18 @@ def validate_fields(required_fields, body):
 
 
 def create_authorization_response(token, data):
-    """Create destructured token response payload, splitting a
-    token into its signature and payload components"""
+    """Create authentication response payload"""
     response = json({"data": data, "token": token})
-    response.cookies[SIGNATURE_KEY] = ".".join(token.split(".")[0:2])
-    response.cookies[PAYLOAD_KEY] = token.split(".")[2]
-
-    response.cookies[SIGNATURE_KEY]["httponly"] = True
     return response
 
 
 def extract_request_token(request):
     """If a request was initiated by the chatbot engine, retrieve
-    the auth token directly from the slot field, otherwise return
-    the Authorization header value or cookie token values."""
+    the auth token directly from the tracker slot. Otherwise return
+    the 'Authorization' header token."""
 
-    if "Authorization" in request.headers:
-        return request.headers["Authorization"]
-
-    token_signature = request.cookies.get(SIGNATURE_KEY)
-    token_payload = request.cookies.get(PAYLOAD_KEY)
-
-    if token_signature and token_payload:
-        return ".".join([token_signature, token_payload])
-
+    if request.token is not None:
+        return request.token
     try:
         return request.json["tracker"]["slots"]["token"]
     except (KeyError, TypeError):
@@ -169,15 +159,13 @@ def get_request_paging_info(request):
 
 async def get_request_block(request):
     """Get headblock from request or newest."""
+    conn = await create_connection()
     try:
         head_block_id = request.args["head"][0]
-        head_block = await blocks_query.fetch_block_by_id(
-            request.app.config.DB_CONN, head_block_id
-        )
+        head_block = await blocks_query.fetch_block_by_id(conn, head_block_id)
     except KeyError:
-        head_block = await blocks_query.fetch_latest_block_with_retry(
-            request.app.config.DB_CONN, 5
-        )
+        head_block = await blocks_query.fetch_latest_block_with_retry(conn, 5)
+    conn.close()
     return head_block
 
 
@@ -188,7 +176,7 @@ async def get_transactor_key(request):
     )
     next_id = id_dict.get("id")
 
-    auth_data = await auth_query.get_auth_by_next_id(next_id)
+    auth_data = await get_auth_by_next_id(next_id)
     encrypted_private_key = auth_data.get("encrypted_private_key")
     private_key = decrypt_private_key(
         request.app.config.AES_KEY, next_id, encrypted_private_key
@@ -265,7 +253,7 @@ async def check_admin_status(next_id):
     conn = await create_connection()
     admin_role = await get_role_by_name(conn, "NextAdmins")
     if not admin_role:
-        raise ApiBadRequest("NEXT administrator group has not been created.")
+        raise ApiInternalError("NEXT administrator group has not been created.")
     admin_membership = await get_role_membership(
         conn, next_id, admin_role[0]["role_id"]
     )
@@ -273,3 +261,67 @@ async def check_admin_status(next_id):
     if admin_membership:
         return True
     return False
+
+
+async def check_role_owner_status(next_id, role_id):
+    """Verify that the given user is an owner of the given role.
+    Args:
+        next_id:
+            str: The next_id of a given user to check status of.
+        role_id:
+            str: The next_id of a given role to query against.
+    Returns:
+        owner_status:
+            bool: Returns True if the next_id is in the role's owner list.
+                Returns False if the next_id is NOT in the role's owner list.
+    """
+    with await create_connection() as conn:
+        role_owners = await fetch_role_owners(conn, role_id)
+        return bool(next_id in role_owners)
+
+
+async def send_notification(next_id, proposal_id, frequency=0):
+    """Send an entry to the notifications table for notification queue
+
+    Args:
+        next_id:
+            str: id for the user that is to be sent a notification
+        proposal_id:
+            str: id of a proposal user is to be notified about
+        frequency:
+            int: number representing time """
+    conn = await create_connection()
+    notification = (
+        await r.table("notifications")
+        .insert(
+            {
+                "next_id": next_id,
+                "proposal_id": proposal_id,
+                "frequency": frequency,
+                "timestamp": r.now(),
+            }
+        )
+        .run(conn)
+    )
+    conn.close()
+    return notification
+
+
+def log_request(request, sensitive=False):
+    """Utility logger for all requests to be logged to file.
+
+    Args:
+        request:
+            obj: incoming request object
+        sensitive:
+            bool: contains info that should not be logged
+    """
+    if sensitive:
+        LOGGER.info("A request was made at %s to %s", dt.datetime.now(), request.url)
+        return
+    LOGGER.info(
+        "The following request (%s) was made at %s with a payload of: %s",
+        request,
+        dt.datetime.now(),
+        request.json,
+    )

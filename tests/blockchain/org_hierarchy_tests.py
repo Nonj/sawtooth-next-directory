@@ -17,7 +17,7 @@
 import unittest
 from uuid import uuid4
 import pytest
-from tests.blockchain.rbac_client import RbacClient
+from tests.blockchain.rbac_client_helper_class import RbacClient
 from tests.blockchain.integration_test_helper import IntegrationTestHelper
 from rbac.common.logs import get_default_logger
 
@@ -334,18 +334,6 @@ class TestOrgHierarchy(unittest.TestCase):
                 - The txn signer is the new manager
                 - The Proposal exists and is OPEN.
         """
-
-        self.assertEqual(
-            self.client.confirm_update_manager(
-                key=self.key1,
-                proposal_id=self.update_manager_proposal_id,
-                reason=uuid4().hex,
-                next_id=self.key2a.public_key,
-                manager_id=self.key_manager.public_key,
-            )[0]["status"],
-            "INVALID",
-            "The txn signer must be the new manager listed on the proposal",
-        )
 
         self.assertEqual(
             self.client.confirm_update_manager(

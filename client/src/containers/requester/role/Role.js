@@ -31,7 +31,6 @@ import MemberList from './MemberList';
 
 import './Role.css';
 import glyph from 'images/glyph-role.png';
-import * as utils from 'services/Utils';
 
 
 /**
@@ -64,8 +63,13 @@ export class Role extends Component {
    * @returns {undefined}
    */
   componentDidUpdate (prevProps) {
-    const { roleId } = this.props;
+    const { getRole, me, roleId } = this.props;
+
     if (prevProps.roleId !== roleId) this.init();
+
+    if (me && me.memberOf && prevProps.me &&
+        me.memberOf.length > prevProps.me.memberOf.length)
+      getRole(roleId);
   }
 
 
@@ -136,11 +140,11 @@ export class Role extends Component {
             glyph={glyph}
             waves
             title={this.role.name}
-            subtitle={
-              this.role && utils.countLabel(
-                this.role.members.length, 'member'
-              )
-            }
+            // subtitle={
+            //   this.role && utils.countLabel(
+            //     this.role.members.length, 'member'
+            //   )
+            // }
             {...this.props}/>
           <div id='next-requester-roles-content'>
             { this.proposal &&
@@ -191,7 +195,6 @@ export class Role extends Component {
           width={4}>
           <Chat
             type='REQUESTER'
-            disabled={this.isOwner()}
             title={this.role.name + ' Conversations'}
             activeRole={this.role} {...this.props}/>
         </Grid.Column>

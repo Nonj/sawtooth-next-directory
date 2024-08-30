@@ -14,62 +14,75 @@ limitations under the License.
 ----------------------------------------------------------------------------- */
 
 
-#next-login-column {
-  margin-top: 130px;
-  max-width: 450px;
-}
-
-#next-login-column a,
-#next-login-column input {
-  color: var(--nav-heading-color);
-}
-
 #next-login-container {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: auto;
 }
 
-#next-login-logo {
-  height: 100px;
-  margin-bottom: 25px;
-  margin-right: 0;
-  width: 100px;
-}
-
 #next-login-container h1 {
+  color: #404150;
   font-size: 1.2em;
-  margin-top: 48px;
+  font-weight: 500;
+  margin: 0;
 }
 
-#next-login-form-1 {
-  margin-top: 70px;
-  text-align: center;
+#next-login-container h3 {
+  color: var(--magenta);
+  font-size: 1.1em;
+  margin: 0;
 }
 
+#next-login-panel {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  margin-top: var(--header-height);
+}
+
+#next-login-column {
+  background: white;
+  border-radius: 2.1em;
+  display: flex;
+  flex-direction: column;
+  height: 650px;
+  max-width: 570px;
+  padding: 4em 7em 1.5em 7em;
+  width: 100%;
+}
+
+#next-login-signup-link {
+  -webkit-appearance: none;
+  color: var(--magenta);
+  font-size: 1em;
+  font-weight: 500;
+}
+
+#next-login-signup-link i {
+  width: 60px;
+}
+
+#next-login-column .ui.center.header {
+  margin-bottom: 0;
+}
+
+#next-login-logo {
+  margin: 27px 0 25px 0;
+  width: 110px;
+}
+
+#next-login-form-1,
 #next-login-form-2 {
-  margin-top: 40px;
+  margin-top: 77px;
 }
 
 #next-login-new-account-container {
-  color: var(--auth-fg-highlight-color);
-  position: fixed;
-  right: 0;
-  top: 0;
-  z-index: 1111;
-  width: 170px;
-}
-
-#next-login-new-account-container a {
-  color: var(--nav-heading-color);
-  background: #8b8ea916;
-  display: block;
-  height: 40px;
-  padding: 10px;
-  text-align: center;
-}
-
-#next-login-new-account-container a:hover {
-  background: #8b8ea91c;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
 }
 
 #next-login-new-account-container span {
@@ -101,12 +114,15 @@ limitations under the License.
 }
 
 #next-login-form-error {
-  margin: -30px auto 25px auto;
-  width: fit-content;
+  border-radius: .6em;
+  margin-bottom: 30px;
+  margin-top: -15px;
+  overflow: hidden;
 }
 
 #next-login-form-error .ui.message {
-  background: #ff008d;
+  background: #004dff;
+  border-radius: 0;
   box-shadow: none;
   color: white;
 }
@@ -120,6 +136,40 @@ limitations under the License.
   padding: 0 10px;
 }
 
-#next-login-form-error .ui.message i:nth-child(2) {
-  font-size: 1.7em;
+#next-login-form-error .ui.message i.close,
+#next-login-form-error .ui.message i.exclamation {
+  font-size: 1.3em;
+}
+
+#next-login-watermark {
+  bottom: 30px;
+  left: 30px;
+  margin: 0 !important;
+  position: fixed;
+}
+
+@media only screen and (max-height: 870px) {
+  #next-login-column {
+    height: 85%;
+    max-height: 660px;
+    min-height: 650px;
+  }
+
+  #next-login-form-1,
+  #next-login-form-2 {
+    margin-top: 69px;
+  }
+
+  #next-login-panel > .ui.grid {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+}
+
+@media only screen and (max-height: 815px) and (max-width: 666px) {
+  #next-login-watermark {
+    display: none;
+  }
 }

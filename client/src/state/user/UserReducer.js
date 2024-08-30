@@ -20,6 +20,7 @@ import * as utils from 'services/Utils';
 
 
 export const request = {
+  edit:       (state) => state.merge({ fetchingEditUser: true }),
   me:         (state) => state.merge({ fetchingMe: true }),
   people:     (state) => state.merge({ fetchingPeople: true }),
   user:       (state) => state.merge({ fetchingUser: true }),
@@ -28,6 +29,7 @@ export const request = {
 
 
 export const success = {
+  edit: (state) => state.merge({ fetchingEditUser: false }),
   me: (state, { me }) =>
     state.merge({
       fetching: false, me, users: utils.merge(state.users || [], [me]),
@@ -49,6 +51,20 @@ export const success = {
 };
 
 
+export const feedReceive = (state, { payload }) => {
+  if (payload.user_proposal &&
+      payload.user_proposal.closer === payload.user_proposal.opener) {
+    const me = {...state.me};
+    me.memberOf = [
+      ...(me.memberOf || []),
+      payload.user_proposal.object,
+    ];
+    return state.merge({ me });
+  }
+  return state.merge({});
+};
+
+
 export const failure = (state, { error }) => {
   return state.merge({ fetching: false, error });
 };
@@ -61,10 +77,15 @@ export const resetAll = (state) => {
 
 export const UserReducer = createReducer(INITIAL_STATE, {
   [Types.RESET_ALL]:          resetAll,
+  [Types.FEED_RECEIVE]:       feedReceive,
 
   [Types.ME_REQUEST]:         request.me,
   [Types.ME_SUCCESS]:         success.me,
   [Types.ME_FAILURE]:         failure,
+
+  [Types.EDIT_USER_REQUEST]:  request.edit,
+  [Types.EDIT_USER_SUCCESS]:  success.edit,
+  [Types.EDIT_USER_FAILURE]:  failure,
 
   [Types.USERS_REQUEST]:      request.users,
   [Types.USER_REQUEST]:       request.user,

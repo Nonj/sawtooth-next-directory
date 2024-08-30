@@ -18,7 +18,6 @@ import json
 from sanic import Blueprint
 
 from rbac.common.logs import get_default_logger
-from rbac.server.api.auth import authorized
 from rbac.server.api.proposals import compile_proposal_resource
 from rbac.server.api import utils
 from rbac.server.db import proposals_query
@@ -28,8 +27,12 @@ FEED_BP = Blueprint("feed")
 LOGGER = get_default_logger(__name__)
 
 
+# TODO: FIXME: sanic-openapi @doc.exclude(True) decorator does not currently work on
+#  non-HTTP method or static routes. When a viable option becomes available apply it
+# to this route so that it is excluded from swagger.
+
+
 @FEED_BP.websocket("api/feed")
-@authorized()
 async def feed(request, web_socket):
     """Socket feed enabling real-time notifications"""
     LOGGER.info(request)

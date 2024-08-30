@@ -16,7 +16,8 @@
 
 import requests
 
-from tests.utilities import create_test_user, get_pack_by_pack_id
+from tests.utilities.creation_utils import create_next_admin, create_test_user
+from tests.utils import get_pack_by_pack_id
 
 
 TEST_USERS = [
@@ -107,8 +108,8 @@ def create_fake_pack(session, user_id, role_id, pack_resource):
                     "description": "<DESCRIPTION OF PACK>"
                 }
     """
-    pack_resource["owners"] = user_id
-    pack_resource["roles"] = role_id
+    pack_resource["owners"] = [user_id]
+    pack_resource["roles"] = [role_id]
     response = session.post("http://rbac-server:8000/api/packs", json=pack_resource)
     return response
 
@@ -137,6 +138,7 @@ def create_fake_role(session, user_id, role_resource):
 def test_create_duplicate_pack():
     """Test duplicate pack creation"""
     with requests.Session() as session:
+        create_next_admin(session)
         user_id = create_test_user(session, TEST_USERS[0]).json()["data"]["user"]["id"]
         role_id = create_fake_role(session, user_id, TEST_ROLES[0]).json()["data"]["id"]
 
@@ -156,6 +158,7 @@ def test_create_duplicate_pack():
 def test_delete_pack():
     """Testing delete pack API"""
     with requests.Session() as session:
+        create_next_admin(session)
         user_id = create_test_user(session, TEST_USERS[1]).json()["data"]["user"]["id"]
         role_id = create_fake_role(session, user_id, TEST_ROLES[1]).json()["data"]["id"]
         pack_id = create_fake_pack(session, user_id, role_id, TEST_PACKS[2]).json()[
@@ -164,19 +167,22 @@ def test_delete_pack():
         response = session.delete(
             "http://rbac-server:8000/api/packs/{}".format(pack_id)
         )
-        assert response.json()["pack_id"] == pack_id
+        assert response.json() == {
+            "deleted": 1,
+            "message": "Pack {} successfully deleted".format(pack_id),
+            "id": pack_id,
+        }
         assert get_pack_by_pack_id(pack_id) == []
 
 
 def test_delete_nonexistent_pack():
     """Testing delete pack API with nonexistent pack"""
     with requests.Session() as session:
-        user_response = create_test_user(session, TEST_USERS[2])
+        create_next_admin(session)
         pack_id = "123"
         response = session.delete(
             "http://rbac-server:8000/api/packs/{}".format(pack_id)
         )
-
         assert (
             response.json()["message"]
             == "Error: Pack does not currently exist or has already been deleted."
@@ -187,6 +193,7 @@ def test_delete_nonexistent_pack():
 def test_delete_pack_as_non_admin():
     """Testing delete pack API with as non-admin"""
     with requests.Session() as session:
+        create_next_admin(session)
         user_id_1 = create_test_user(session, TEST_USERS[4]).json()["data"]["user"][
             "id"
         ]
@@ -196,26 +203,39 @@ def test_delete_pack_as_non_admin():
         pack_id = create_fake_pack(session, user_id_1, role_id, TEST_PACKS[6]).json()[
             "data"
         ]["pack_id"]
-        user_id = create_test_user(session, TEST_USERS[5]).json()["data"]["user"]["id"]
+
+        user_response = create_test_user(session, TEST_USERS[5])
+        assert user_response.status_code == 200, "Error creating user: %s \n%s" % (
+            TEST_USERS[5]["username"],
+            user_response.json(),
+        )
+
+    with requests.Session() as session:
+        # auth as a non-admin
         user_payload = {
             "id": TEST_USERS[5]["username"],
             "password": TEST_USERS[5]["password"],
         }
-        session.post("http://rbac-server:8000/api/authorization/", json=user_payload)
+        auth_response = session.post(
+            "http://rbac-server:8000/api/authorization/", json=user_payload
+        )
+        assert auth_response.status_code == 200, "Error authing as %s: \n%s" % (
+            TEST_USERS[5]["username"],
+            auth_response.json(),
+        )
+        # try to delete the pack as a non-admin
         response = session.delete(
             "http://rbac-server:8000/api/packs/{}".format(pack_id)
         )
-
-        assert (
-            response.json()["message"]
-            == "Error: You do not have the authorization to delete this pack."
+        assert response.status_code == 401, (
+            "Unexpected response when deleting pack: %s" % response.json()
         )
-        assert response.json()["code"] == 400
 
 
 def test_duplicate_pack_with_spaces():
     """Test creating two pack resources with varying spaces in between the name"""
     with requests.Session() as session:
+        create_next_admin(session)
         user_id = create_test_user(session, TEST_USERS[3]).json()["data"]["user"]["id"]
         role_id = create_fake_role(session, user_id, TEST_ROLES[3]).json()["data"]["id"]
         create_fake_pack(session, user_id, role_id, TEST_PACKS[4])

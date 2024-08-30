@@ -15,15 +15,18 @@ limitations under the License.
 
 
 import React, { Component } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Button,
   Container,
   Form,
+  Icon,
   Label,
   Input,
   Message,
   Transition } from 'semantic-ui-react';
 import PropTypes from 'prop-types';
+import { connect } from 'react-redux';
 
 
 /**
@@ -36,8 +39,9 @@ class LoginForm extends Component {
 
   static propTypes = {
     error:          PropTypes.object,
+    pendingLogin:   PropTypes.bool,
     resetErrors:    PropTypes.func,
-    submit:         PropTypes.func.isRequired,
+    submit:         PropTypes.func,
   };
 
 
@@ -117,7 +121,7 @@ class LoginForm extends Component {
    * @returns {JSX}
    */
   render () {
-    const { error, submit } = this.props;
+    const { error, pendingLogin, submit } = this.props;
     const {
       activeIndex,
       username,
@@ -131,7 +135,7 @@ class LoginForm extends Component {
     const show = 300;
 
     return (
-      <div className='form-inverted'>
+      <div className='form-default'>
         <Transition
           visible={activeIndex === 0}
           animation='fade up'
@@ -141,17 +145,17 @@ class LoginForm extends Component {
               <div id='next-login-form-error'>
                 <Message
                   error
-                  size='tiny'
+                  size='small'
                   icon='exclamation triangle'
-                  onDismiss={this.handleDismiss}
-                  header='Authentication unsuccessful'
-                  content={error.message}
-                />
+                  content={error.message}/>
               </div>
             }
             <Form id='next-login-form'
               onSubmit={() => submit(username, password)}>
               <Form.Field>
+                <Label>
+                  USERNAME
+                </Label>
                 <Input
                   id='next-username-input'
                   autoFocus
@@ -163,6 +167,9 @@ class LoginForm extends Component {
                   onChange={this.handleChange}/>
               </Form.Field>
               <Form.Field>
+                <Label>
+                  PASSWORD
+                </Label>
                 <Input
                   id='next-password-input'
                   ref={ref => this.passwordRef = ref}
@@ -172,22 +179,38 @@ class LoginForm extends Component {
                   placeholder='Password'
                   value={password}
                   onChange={this.handleChange}/>
-                <Label>
-                  <Button
+                {/* <Button
                     id='next-login-form-forgot-password'
                     className='link'
                     type='button'
                     onClick={() => this.setFlow(1)}>
-                  Forgot Password?
-                  </Button>
+                  Forgot Password? */}
+                {/* </Button> */}
+                { process.env.REACT_APP_ENABLE_NEXT_BASE_USE === '1' &&
+                <Label>
+                  <div id='next-login-new-account-container'>
+                    Don&apos;t have an account?
+                    <Link to='/signup'>
+                      Sign Up
+                    </Link>
+                  </div>
                 </Label>
+                }
               </Form.Field>
               <Container textAlign='center'>
                 <Form.Button
-                  content='Login'
-                  disabled={!validPassword}
-                  icon='right arrow'
-                  labelPosition='right'/>
+                  id='next-login-form-submit'
+                  loading={pendingLogin}
+                  animated
+                  fluid
+                  disabled={pendingLogin || !validUsername || !validPassword}>
+                  <Button.Content visible>
+                    Login
+                  </Button.Content>
+                  <Button.Content hidden>
+                    <Icon name='arrow right'/>
+                  </Button.Content>
+                </Form.Button>
               </Container>
             </Form>
           </div>
@@ -224,4 +247,16 @@ class LoginForm extends Component {
 }
 
 
-export default LoginForm;
+const mapStateToProps = (state) => {
+  return {
+    error: state.auth.error,
+    pendingLogin: state.auth.pendingLogin,
+  };
+};
+
+const mapDispatchToProps = (dispatch) => {
+  return {};
+};
+
+
+export default connect(mapStateToProps, mapDispatchToProps)(LoginForm);
